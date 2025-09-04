@@ -13,6 +13,7 @@ export interface Message {
   sender: 'user' | 'ai';
   groundingChunks?: GroundingChunk[];
   imageUrl?: string; // To display user-uploaded images
+  timestamp: number; // To display the time of the message
 }
 
 export interface Task {

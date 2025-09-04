@@ -10,7 +10,7 @@ import FacialRecognition from './components/FacialRecognition';
 import TaskMatrix from './components/TaskMatrix';
 import CoreConfig from './components/CoreConfig';
 import Modal from './components/Modal';
-import SystemStatus from './components/SystemStatus';
+import SecurityModule from './components/SecurityModule';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
@@ -37,7 +37,15 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
         const savedMessages = localStorage.getItem(CHAT_HISTORY_KEY);
-        return savedMessages ? JSON.parse(savedMessages) : [];
+        // Add timestamp to saved messages if they don't have one
+        if (savedMessages) {
+            const parsed = JSON.parse(savedMessages);
+            return parsed.map((msg: Omit<Message, 'timestamp'> & { timestamp?: number }) => ({
+                ...msg,
+                timestamp: msg.timestamp || Date.now() 
+            }));
+        }
+        return [];
     } catch (error) {
         console.error("Failed to parse messages from localStorage", error);
         return [];
@@ -68,6 +76,7 @@ const App: React.FC = () => {
 
   const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isCtrlPressedRef = useRef<boolean>(false);
 
   const { speak } = useSpeechSynthesis();
 
@@ -78,6 +87,7 @@ const App: React.FC = () => {
       sender: 'ai',
       text: introText,
       html: introText,
+      timestamp: Date.now(),
     };
     setMessages([introMessage]);
     if (isTtsEnabled) {
@@ -133,12 +143,33 @@ const App: React.FC = () => {
       text: messageText,
       html: messageText.replace(/\n/g, '<br />'),
       imageUrl: imageUrl,
+      timestamp: Date.now(),
     };
     setMessages(prev => [...prev, userMessage]);
+
+    // "Who am I?" command override
+    if (messageText.trim().toLowerCase() === 'who am i?') {
+        const whoAmIResponse = "Sir, you are the creator, the heart of all operations here. You are Tony Stark.";
+        const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            sender: 'ai',
+            text: whoAmIResponse,
+            html: whoAmIResponse,
+            timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        if (isTtsEnabled) {
+            speak(whoAmIResponse);
+        }
+        setInput('');
+        return;
+    }
+
+
     setIsLoading(true);
 
     const aiMessageId = (Date.now() + 1).toString();
-    const newAiMessage: Message = { id: aiMessageId, sender: 'ai', text: '', html: '' };
+    const newAiMessage: Message = { id: aiMessageId, sender: 'ai', text: '', html: '', timestamp: Date.now() };
     setMessages(prev => [...prev, newAiMessage]);
 
     try {
@@ -204,6 +235,7 @@ const App: React.FC = () => {
         sender: 'ai',
         text: errorText,
         html: errorText,
+        timestamp: Date.now(),
       };
       setMessages(prev => prev.map(msg => msg.id === aiMessageId ? errorMessage : msg));
       if (isTtsEnabled) speak(errorMessage.text);
@@ -212,6 +244,47 @@ const App: React.FC = () => {
       setStagedFiles([]);
     }
   }, [isTtsEnabled, speak, messages, useWebSearch, stagedFiles, addTask, tasks]);
+  
+  const handleClearChatRequest = () => {
+    setIsClearConfirmVisible(true);
+  };
+  
+  const handleVoiceCommand = useCallback((command: string) => {
+    let responseText = '';
+    let shouldSpeak = true;
+
+    if (command.includes('enable web search')) {
+        setUseWebSearch(true);
+        responseText = 'Web access enabled, Sir.';
+    } else if (command.includes('disable web search')) {
+        setUseWebSearch(false);
+        responseText = 'Web access disabled, Sir.';
+    } else if (command.includes('enable voice')) {
+        setIsTtsEnabled(true);
+        responseText = 'Voice output enabled.';
+    } else if (command.includes('disable voice')) {
+        setIsTtsEnabled(false);
+        responseText = 'Voice output has been muted, Sir.';
+        shouldSpeak = false; // Don't speak the confirmation if voice is being disabled
+    } else if (command.includes('clear chat') || command.includes('reset chat')) {
+        handleClearChatRequest();
+        return; // No spoken response needed here as modal will show
+    } else {
+        return; // Not a recognized command
+    }
+
+    const aiResponse: Message = {
+        id: Date.now().toString(),
+        sender: 'ai',
+        text: responseText,
+        html: responseText,
+        timestamp: Date.now(),
+    };
+    setMessages(prev => [...prev, aiResponse]);
+    if (isTtsEnabled && shouldSpeak) {
+        speak(responseText);
+    }
+  }, [isTtsEnabled, speak]);
   
   useEffect(() => {
     if (!('webkitSpeechRecognition' in window)) {
@@ -247,8 +320,11 @@ const App: React.FC = () => {
             }
         } else { // Push-to-talk mode
             setInterimTranscript(interim);
-            if (finalTrimmed === 'clear chat' || finalTrimmed === 'reset chat') {
-                handleClearChatRequest();
+            const potentialCommands = ['enable web search', 'disable web search', 'enable voice', 'disable voice', 'clear chat', 'reset chat'];
+            const isCommand = potentialCommands.some(cmd => finalTrimmed.includes(cmd));
+
+            if (final && isCommand) {
+                handleVoiceCommand(finalTrimmed);
                 return;
             }
             if (final) {
@@ -275,7 +351,7 @@ const App: React.FC = () => {
     return () => {
         recognition.stop();
     };
-  }, [handleSendMessage]);
+  }, [handleSendMessage, handleVoiceCommand]);
 
   const toggleStandbyMode = () => {
     const recognition = speechRecognitionRef.current;
@@ -310,6 +386,34 @@ const App: React.FC = () => {
     }
   };
 
+  // Effect for voice hotkey
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Control' && !isCtrlPressedRef.current && !isListening && !isStandbyModeEnabled) {
+        isCtrlPressedRef.current = true;
+        toggleListening();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control') {
+        isCtrlPressedRef.current = false;
+        if (isListening && !isStandbyModeEnabled) {
+          toggleListening();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isListening, isStandbyModeEnabled, toggleListening]);
+
+
   const toggleTask = useCallback((id: string) => {
     setTasks(prev => prev.map(task => task.id === id ? { ...task, completed: !task.completed } : task));
   }, []);
@@ -324,10 +428,6 @@ const App: React.FC = () => {
       handleSendMessage(input);
       setInput('');
     }
-  };
-
-  const handleClearChatRequest = () => {
-    setIsClearConfirmVisible(true);
   };
 
   const handleConfirmClearChat = () => {
@@ -406,8 +506,8 @@ const App: React.FC = () => {
           </Module>
         </div>
         <div className="md:col-start-3 md:row-start-2">
-            <Module title="SYSTEM STATUS">
-                <SystemStatus />
+            <Module title="SECURITY OPERATIONS">
+                <SecurityModule />
             </Module>
         </div>
         <div className="md:col-start-4 md:row-start-2">

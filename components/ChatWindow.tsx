@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import type { Message } from '../types';
 import { MicIcon, SendIcon, VolumeUpIcon, VolumeOffIcon, PaperclipIcon, XMarkIcon, TrashIcon, SearchIcon } from './Icons';
+import Avatar from './Avatar';
 
 interface ChatWindowProps {
   messages: Message[];
@@ -74,43 +75,50 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
       <div className="flex-grow p-4 overflow-y-auto space-y-6">
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-            <div
-              className={`max-w-xl p-3 rounded-lg font-mono text-base ${
-                msg.sender === 'user'
-                  ? 'bg-cyan-900/50 text-cyan-200'
-                  : 'bg-gray-800/50 text-gray-200'
-              }`}
-            >
-              {msg.imageUrl && (
-                  <img src={msg.imageUrl} alt="User upload" className="rounded-md mb-2 max-w-xs max-h-64" />
-              )}
-              <div className="prose prose-invert prose-p:text-gray-200 prose-headings:text-cyan-300" dangerouslySetInnerHTML={{ __html: msg.html }}></div>
-            </div>
-            {msg.groundingChunks && msg.groundingChunks.length > 0 && (
-                <div className="max-w-xl mt-2 w-full border-t border-cyan-800/50 pt-2">
-                    <h4 className="text-xs text-cyan-500 font-mono tracking-wider">SOURCES:</h4>
-                    <ul className="text-xs list-none space-y-1 mt-1">
-                        {msg.groundingChunks.map((chunk, index) => (
-                            <li key={index} className="truncate">
-                                <a 
-                                    href={chunk.web.uri} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-cyan-400 hover:text-cyan-200 hover:underline transition-colors"
-                                    title={chunk.web.title}
-                                >
-                                    {`[${index + 1}] ${chunk.web.title || chunk.web.uri}`}
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
+          <div key={msg.id} className={`flex items-end gap-3 ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+            <Avatar sender={msg.sender} />
+            <div className={`w-full flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                <div
+                  className={`max-w-xl p-3 rounded-lg font-mono text-base ${
+                    msg.sender === 'user'
+                      ? 'bg-cyan-900/50 text-cyan-200'
+                      : 'bg-gray-800/50 text-gray-200'
+                  }`}
+                >
+                  {msg.imageUrl && (
+                      <img src={msg.imageUrl} alt="User upload" className="rounded-md mb-2 max-w-xs max-h-64" />
+                  )}
+                  <div className="prose prose-invert prose-p:text-gray-200 prose-headings:text-cyan-300" dangerouslySetInnerHTML={{ __html: msg.html }}></div>
                 </div>
-            )}
+                 <p className="text-xs text-cyan-600/80 mt-1.5 px-1">
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                 </p>
+                {msg.groundingChunks && msg.groundingChunks.length > 0 && (
+                    <div className="max-w-xl mt-2 w-full border-t border-cyan-800/50 pt-2">
+                        <h4 className="text-xs text-cyan-500 font-mono tracking-wider">SOURCES:</h4>
+                        <ul className="text-xs list-none space-y-1 mt-1">
+                            {msg.groundingChunks.map((chunk, index) => (
+                                <li key={index} className="truncate">
+                                    <a 
+                                        href={chunk.web.uri} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-cyan-400 hover:text-cyan-200 hover:underline transition-colors"
+                                        title={chunk.web.title}
+                                    >
+                                        {`[${index + 1}] ${chunk.web.title || chunk.web.uri}`}
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </div>
           </div>
         ))}
         {isLoading && messages[messages.length - 1]?.sender === 'user' && (
-           <div className="flex items-start">
+           <div className="flex items-end gap-3 flex-row">
+            <Avatar sender="ai" />
              <div className="max-w-xl p-3 rounded-lg bg-gray-800/50 text-gray-200">
                 <div className="flex items-center space-x-2">
                     <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse [animation-delay:-0.3s]"></div>
