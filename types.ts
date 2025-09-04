@@ -1,5 +1,5 @@
 export interface GroundingChunk {
-  web: {
+  web?: {
     // Fix: Make `uri` and `title` optional to align with the @google/genai GroundingChunk type.
     // This resolves a type incompatibility error in App.tsx.
     uri?: string;
@@ -13,6 +13,13 @@ export interface Message {
   sender: 'user' | 'ai';
   groundingChunks?: GroundingChunk[];
 }
+
+export interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
 
 // Fix: Add global type definitions for the Web Speech API to resolve errors in App.tsx.
 // The SpeechRecognition API is experimental and its types are not included in TypeScript's default DOM library.

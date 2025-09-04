@@ -2,6 +2,7 @@
   "name": "J.A.R.V.I.S. AI Assistant",
   "description": "A sophisticated, conversational AI assistant inspired by J.A.R.V.I.S. from Iron Man. It features a futuristic UI, voice interaction, and simulated modules for a complete personal assistant experience, powered by Gemini.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera"
   ]
 }
