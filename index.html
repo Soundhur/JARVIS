@@ -1,8 +1,7 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF--8" />
+    <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>J.A.R.V.I.S. AI Assistant</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -18,8 +17,21 @@
   }
 }
 </script>
+<style>
+  @keyframes gradient-animation {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  body {
+    background: linear-gradient(-45deg, #08203e, #0d3b66, #1a535c, #2c7a7b);
+    background-size: 400% 400%;
+    animation: gradient-animation 20s ease infinite;
+    color: #e2e8f0; /* A light default text color */
+  }
+</style>
 </head>
-  <body class="bg-gray-900">
+  <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

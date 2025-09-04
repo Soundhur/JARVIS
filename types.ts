@@ -12,6 +12,7 @@ export interface Message {
   html: string; // Sanitized HTML for rendering
   sender: 'user' | 'ai';
   groundingChunks?: GroundingChunk[];
+  imageUrl?: string; // To display user-uploaded images
 }
 
 export interface Task {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Message, GroundingChunk, Task } from './types';
 import { Part } from '@google/genai';
 import { generateResponseStream } from './services/geminiService';
@@ -9,6 +9,8 @@ import Clock from './components/Clock';
 import FacialRecognition from './components/FacialRecognition';
 import TaskMatrix from './components/TaskMatrix';
 import CoreConfig from './components/CoreConfig';
+import Modal from './components/Modal';
+import SystemStatus from './components/SystemStatus';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
@@ -59,7 +61,11 @@ const App: React.FC = () => {
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   
   const [isListening, setIsListening] = useState(false);
+  const [isStandbyModeEnabled, setIsStandbyModeEnabled] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isClearConfirmVisible, setIsClearConfirmVisible] = useState(false);
+
   const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,83 +85,29 @@ const App: React.FC = () => {
     }
   }, [isTtsEnabled, speak]);
 
-  // Load from local storage or show initial message
   useEffect(() => {
     if (messages.length === 0) {
       resetChat();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     // Clean up object URLs on unmount
+    return () => {
+      messages.forEach(message => {
+        if (message.imageUrl) {
+          URL.revokeObjectURL(message.imageUrl);
+        }
+      });
+    };
   }, []);
 
-  // Save messages and tasks to local storage
   useEffect(() => {
      if (messages.length > 0) {
-        localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages));
+        localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages.map(({imageUrl, ...rest}) => rest)));
      }
   }, [messages]);
 
   useEffect(() => {
     localStorage.setItem(TASK_LIST_KEY, JSON.stringify(tasks));
   }, [tasks]);
-
-  useEffect(() => {
-    if ('webkitSpeechRecognition' in window) {
-      const recognition = new webkitSpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event) => {
-        let interim = '';
-        let final = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
-          }
-        }
-        setInterimTranscript(interim);
-        
-        const command = final.trim().toLowerCase();
-        if (command === 'clear chat' || command === 'reset chat') {
-            handleClearChat();
-            return;
-        }
-
-        if (final) {
-          setInput(prev => (prev ? prev + ' ' : '') + final.trim());
-        }
-      };
-      
-      recognition.onend = () => {
-        setIsListening(false);
-        setInterimTranscript('');
-      };
-
-      recognition.onerror = (event) => {
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-        setInterimTranscript('');
-      };
-      
-      speechRecognitionRef.current = recognition;
-    }
-     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const toggleListening = () => {
-    if (!speechRecognitionRef.current) return;
-    if (isListening) {
-      speechRecognitionRef.current.stop();
-      setIsListening(false);
-    } else {
-      setInput('');
-      setInterimTranscript('');
-      speechRecognitionRef.current.start();
-      setIsListening(true);
-    }
-  };
 
   const addTask = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -167,23 +119,20 @@ const App: React.FC = () => {
     setTasks(prev => [...prev, newTask]);
   }, []);
 
-  const toggleTask = useCallback((id: string) => {
-    setTasks(prev => prev.map(task => task.id === id ? { ...task, completed: !task.completed } : task));
-  }, []);
-
-  const clearCompletedTasks = useCallback(() => {
-    setTasks(prev => prev.filter(task => !task.completed));
-  }, []);
-
-
   const handleSendMessage = useCallback(async (messageText: string) => {
     if (!messageText.trim() && stagedFiles.length === 0) return;
+
+    let imageUrl: string | undefined = undefined;
+    if (stagedFiles.length > 0 && stagedFiles[0].type.startsWith('image/')) {
+        imageUrl = URL.createObjectURL(stagedFiles[0]);
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
       sender: 'user',
       text: messageText,
       html: messageText.replace(/\n/g, '<br />'),
+      imageUrl: imageUrl,
     };
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
@@ -262,8 +211,113 @@ const App: React.FC = () => {
       setIsLoading(false);
       setStagedFiles([]);
     }
-  }, [isTtsEnabled, speak, messages, useWebSearch, stagedFiles, addTask, tasks, toggleTask]);
+  }, [isTtsEnabled, speak, messages, useWebSearch, stagedFiles, addTask, tasks]);
   
+  useEffect(() => {
+    if (!('webkitSpeechRecognition' in window)) {
+        console.warn("Speech recognition is not supported in this browser.");
+        return;
+    }
+
+    const recognition = new webkitSpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                final += event.results[i][0].transcript;
+            } else {
+                interim += event.results[i][0].transcript;
+            }
+        }
+
+        const finalTrimmed = final.trim().toLowerCase();
+
+        if (speechRecognitionRef.current?.continuous) { // Standby mode
+            setInterimTranscript(interim + final); 
+            if (finalTrimmed.includes('jarvis')) {
+                const command = finalTrimmed.split('jarvis')[1]?.trim();
+                if (command) {
+                    handleSendMessage(command);
+                    setInterimTranscript('');
+                }
+            }
+        } else { // Push-to-talk mode
+            setInterimTranscript(interim);
+            if (finalTrimmed === 'clear chat' || finalTrimmed === 'reset chat') {
+                handleClearChatRequest();
+                return;
+            }
+            if (final) {
+                setInput(prev => (prev ? prev + ' ' : '') + final.trim());
+            }
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+    };
+    
+    recognition.onend = () => {
+        if (speechRecognitionRef.current?.continuous) {
+            speechRecognitionRef.current.start();
+        } else {
+            setIsListening(false);
+        }
+    };
+    
+    speechRecognitionRef.current = recognition;
+
+    return () => {
+        recognition.stop();
+    };
+  }, [handleSendMessage]);
+
+  const toggleStandbyMode = () => {
+    const recognition = speechRecognitionRef.current;
+    if (!recognition) return;
+
+    setIsStandbyModeEnabled(prev => {
+        const nextState = !prev;
+        if (nextState) {
+            recognition.continuous = true;
+            recognition.start();
+            setIsListening(true);
+        } else {
+            recognition.continuous = false;
+            recognition.stop();
+            setIsListening(false);
+        }
+        return nextState;
+    });
+  };
+
+  const toggleListening = () => { // Push-to-talk
+    const recognition = speechRecognitionRef.current;
+    if (!recognition || isStandbyModeEnabled) return;
+
+    if (isListening) {
+        recognition.stop();
+    } else {
+        setInput('');
+        setInterimTranscript('');
+        recognition.start();
+        setIsListening(true);
+    }
+  };
+
+  const toggleTask = useCallback((id: string) => {
+    setTasks(prev => prev.map(task => task.id === id ? { ...task, completed: !task.completed } : task));
+  }, []);
+
+  const clearCompletedTasks = useCallback(() => {
+    setTasks(prev => prev.filter(task => !task.completed));
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if(input.trim() || stagedFiles.length > 0) {
@@ -272,15 +326,21 @@ const App: React.FC = () => {
     }
   };
 
-  const handleClearChat = () => {
-    const isConfirmed = window.confirm("Are you certain you wish to purge the entire communication log, Sir?");
-    if (isConfirmed) {
-      setIsLoading(false);
-      setStagedFiles([]);
-      setInput('');
-      localStorage.removeItem(CHAT_HISTORY_KEY);
-      resetChat();
-    }
+  const handleClearChatRequest = () => {
+    setIsClearConfirmVisible(true);
+  };
+
+  const handleConfirmClearChat = () => {
+    setIsLoading(false);
+    setStagedFiles([]);
+    setInput('');
+    localStorage.removeItem(CHAT_HISTORY_KEY);
+    resetChat();
+    setIsClearConfirmVisible(false);
+  };
+
+  const handleCancelClearChat = () => {
+    setIsClearConfirmVisible(false);
   };
 
   const handleFileButtonClick = () => {
@@ -298,16 +358,25 @@ const App: React.FC = () => {
     setStagedFiles(prev => prev.filter((_, i) => i !== index));
   };
   
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return messages;
+    }
+    const lowerCaseQuery = searchQuery.toLowerCase().trim();
+    return messages.filter(msg =>
+      msg.id === 'init-message' ? false : msg.text.toLowerCase().includes(lowerCaseQuery)
+    );
+  }, [messages, searchQuery]);
+
   return (
     <div 
-      className="min-h-screen bg-cover bg-center bg-no-repeat text-white p-4"
-      style={{ backgroundImage: "url('https://i.imgur.com/gAY807N.jpg')" }}
+      className="min-h-screen text-white p-4"
     >
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-      <main className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100vh-2rem)]">
-        <div className="md:col-span-2 h-full">
+      <main className="relative z-10 grid grid-cols-1 md:grid-cols-4 md:grid-rows-3 gap-4 h-[calc(100vh-2rem)]">
+        <div className="md:col-span-2 md:row-span-3 h-full min-h-0">
             <ChatWindow 
-              messages={messages}
+              messages={filteredMessages}
               input={input}
               setInput={setInput}
               handleSubmit={handleSubmit}
@@ -319,26 +388,51 @@ const App: React.FC = () => {
               stagedFiles={stagedFiles}
               onRemoveStagedFile={removeStagedFile}
               onFileButtonClick={handleFileButtonClick}
-              onClearChat={handleClearChat}
+              onClearChat={handleClearChatRequest}
               interimTranscript={interimTranscript}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              isStandbyModeEnabled={isStandbyModeEnabled}
             />
         </div>
-        <div className="flex flex-col gap-4 h-full overflow-y-auto pr-1">
+        <div className="md:col-start-3">
           <Module title="SYSTEM CLOCK">
             <Clock />
           </Module>
+        </div>
+        <div className="md:col-start-4">
           <Module title="BIOMETRIC SCAN">
             <FacialRecognition />
           </Module>
-           <Module title="TASK MATRIX" className="flex-grow">
+        </div>
+        <div className="md:col-start-3 md:row-start-2">
+            <Module title="SYSTEM STATUS">
+                <SystemStatus />
+            </Module>
+        </div>
+        <div className="md:col-start-4 md:row-start-2">
+             <CoreConfig 
+                isWebSearchEnabled={useWebSearch}
+                onWebSearchToggle={() => setUseWebSearch(!useWebSearch)}
+                isStandbyModeEnabled={isStandbyModeEnabled}
+                onStandbyModeToggle={toggleStandbyMode}
+            />
+        </div>
+        <div className="md:col-span-2 md:col-start-3 md:row-start-3 h-full min-h-0">
+           <Module title="TASK MATRIX" className="h-full">
             <TaskMatrix tasks={tasks} onToggleTask={toggleTask} onClearCompletedTasks={clearCompletedTasks} />
           </Module>
-          <CoreConfig 
-            isWebSearchEnabled={useWebSearch}
-            onWebSearchToggle={() => setUseWebSearch(!useWebSearch)}
-          />
         </div>
       </main>
+      <Modal
+        isOpen={isClearConfirmVisible}
+        onClose={handleCancelClearChat}
+        onConfirm={handleConfirmClearChat}
+        title="Confirm Log Purge"
+        confirmText="Purge"
+      >
+        <p>Are you certain you wish to purge the entire communication log, Sir? This action is irreversible.</p>
+      </Modal>
        <input
         type="file"
         ref={fileInputRef}

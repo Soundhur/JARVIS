@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import type { Message } from '../types';
-import { MicIcon, SendIcon, VolumeUpIcon, VolumeOffIcon, PaperclipIcon, XMarkIcon, TrashIcon } from './Icons';
+import { MicIcon, SendIcon, VolumeUpIcon, VolumeOffIcon, PaperclipIcon, XMarkIcon, TrashIcon, SearchIcon } from './Icons';
 
 interface ChatWindowProps {
   messages: Message[];
@@ -17,6 +17,9 @@ interface ChatWindowProps {
   onFileButtonClick: () => void;
   onClearChat: () => void;
   interimTranscript: string;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  isStandbyModeEnabled: boolean;
 }
 
 const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -34,6 +37,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   onFileButtonClick,
   onClearChat,
   interimTranscript,
+  searchQuery,
+  setSearchQuery,
+  isStandbyModeEnabled,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -43,8 +49,20 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-black/30 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-[0_0_15px_rgba(0,255,255,0.1)]">
-      <div className="p-3 border-b border-cyan-500/30 flex justify-between items-center">
-        <h2 className="text-cyan-300 font-mono text-lg tracking-wider">COMMUNICATION LOG</h2>
+      <div className="p-3 border-b border-cyan-500/30 flex justify-between items-center gap-4">
+        <h2 className="text-cyan-300 font-mono text-lg tracking-wider whitespace-nowrap">COMMUNICATION LOG</h2>
+        <div className="relative w-full max-w-xs">
+            <input 
+                type="text"
+                placeholder="Search history..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-gray-900/70 border border-cyan-700/50 rounded-lg py-1.5 pl-3 pr-8 text-cyan-200 placeholder-cyan-600/70 focus:ring-2 focus:ring-cyan-500 focus:outline-none font-mono text-sm"
+            />
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <SearchIcon className="h-4 w-4 text-cyan-400" />
+            </div>
+        </div>
         <div className="flex items-center space-x-2">
             <button onClick={onClearChat} className="text-cyan-400 hover:text-cyan-200 transition-colors" aria-label="Clear chat history">
               <TrashIcon className="h-6 w-6" />
@@ -64,6 +82,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
                   : 'bg-gray-800/50 text-gray-200'
               }`}
             >
+              {msg.imageUrl && (
+                  <img src={msg.imageUrl} alt="User upload" className="rounded-md mb-2 max-w-xs max-h-64" />
+              )}
               <div className="prose prose-invert prose-p:text-gray-200 prose-headings:text-cyan-300" dangerouslySetInnerHTML={{ __html: msg.html }}></div>
             </div>
             {msg.groundingChunks && msg.groundingChunks.length > 0 && (
@@ -125,8 +146,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             onClick={toggleListening}
             className={`p-2 rounded-full transition-colors ${
               isListening ? 'bg-red-500/50 text-red-200 animate-pulse' : 'bg-cyan-700/50 text-cyan-300 hover:bg-cyan-600/50'
-            }`}
+            } ${isStandbyModeEnabled && 'opacity-50 cursor-not-allowed'}`}
              aria-label={isListening ? 'Stop listening' : 'Start listening'}
+             disabled={isStandbyModeEnabled}
           >
             <MicIcon className="h-6 w-6" />
           </button>
@@ -142,9 +164,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Sir, how may I be of assistance?"
+            placeholder={isStandbyModeEnabled ? 'Awaiting hotword "J.A.R.V.I.S."...' : 'Sir, how may I be of assistance?'}
             className="w-full bg-gray-900/70 border border-cyan-700/50 rounded-lg p-3 text-cyan-200 placeholder-cyan-600/70 focus:ring-2 focus:ring-cyan-500 focus:outline-none font-mono"
-            disabled={isLoading}
+            disabled={isLoading || isStandbyModeEnabled}
           />
           <button
             type="submit"
